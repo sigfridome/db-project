@@ -1,0 +1,4 @@
+flyway.url=jdbc:mysql://localhost:3306/testdb?allowPublicKeyRetrieval=true&useSSL=false
+flyway.user=sig
+flyway.password=sefin2026
+flyway.locations=filesystem:sql
