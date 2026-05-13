@@ -13,7 +13,7 @@ pipeline {
 
     environment {
         FLYWAY = '/opt/devops/tools/flyway/flyway'
-        PROJECT_DIR = '/opt/devops/projects/db-poc'
+       PROJECT_DIR = "${WORKSPACE}"
         BACKUP_DIR = '/opt/devops/backups'
     }
 
