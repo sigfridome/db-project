@@ -10,3 +10,4 @@
 
 ```bash
 bash scripts/setup.sh
+test poll &(date)
