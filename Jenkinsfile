@@ -3,189 +3,111 @@ pipeline {
         label 'linux'
     }
 
-    parameters {
-        choice(
-            name: 'ENVIRONMENT',
-            choices: ['DEV', 'QA', 'PROD'],
-            description: 'Ambiente donde se ejecutará Flyway'
-        )
-    }
-
     environment {
         FLYWAY = '/opt/devops/tools/flyway/flyway'
-       PROJECT_DIR = "${WORKSPACE}"
-        BACKUP_DIR = '/opt/devops/backups'
     }
 
     stages {
-        stage('Resolve Environment') {
+
+        stage('Deploy DEV') {
             steps {
                 script {
-                    if (params.ENVIRONMENT == 'DEV') {
-                        env.DB_NAME = 'flyway_dev'
-                        env.DB_URL = 'jdbc:mysql://localhost:3306/flyway_dev?allowPublicKeyRetrieval=true&useSSL=false'
-                        env.CRED_ID = 'mysql-flyway-dev'
-                    }
-
-                    if (params.ENVIRONMENT == 'QA') {
-                        env.DB_NAME = 'flyway_qa'
-                        env.DB_URL = 'jdbc:mysql://localhost:3306/flyway_qa?allowPublicKeyRetrieval=true&useSSL=false'
-                        env.CRED_ID = 'mysql-flyway-qa'
-                    }
-
-                    if (params.ENVIRONMENT == 'PROD') {
-                        env.DB_NAME = 'flyway_prod'
-                        env.DB_URL = 'jdbc:mysql://localhost:3306/flyway_prod?allowPublicKeyRetrieval=true&useSSL=false'
-                        env.CRED_ID = 'mysql-flyway-prod'
-                    }
-
-                    echo "Ambiente seleccionado: ${params.ENVIRONMENT}"
-                    echo "Base de datos: ${env.DB_NAME}"
+                    deployDatabase(
+                        'DEV',
+                        'flyway_dev',
+                        'mysql-flyway-dev'
+                    )
                 }
             }
         }
 
-        stage('Info Before') {
+        stage('QA Approval') {
             steps {
-                dir("${PROJECT_DIR}") {
-                    withCredentials([
-                        usernamePassword(
-                            credentialsId: "${CRED_ID}",
-                            usernameVariable: 'DB_USER',
-                            passwordVariable: 'DB_PASS'
-                        )
-                    ]) {
-                        sh '''
-                        $FLYWAY \
-                          -url="$DB_URL" \
-                          -user="$DB_USER" \
-                          -password="$DB_PASS" \
-                          -locations="filesystem:sql" \
-                          info
-                        '''
-                    }
+                input message: '¿Desplegar a QA?', ok: 'Deploy QA'
+            }
+        }
+
+        stage('Deploy QA') {
+            steps {
+                script {
+                    deployDatabase(
+                        'QA',
+                        'flyway_qa',
+                        'mysql-flyway-qa'
+                    )
                 }
             }
         }
 
-        stage('Backup Database') {
+        stage('PROD Approval') {
             steps {
-                dir("${PROJECT_DIR}") {
-                    withCredentials([
-                        usernamePassword(
-                            credentialsId: "${CRED_ID}",
-                            usernameVariable: 'DB_USER',
-                            passwordVariable: 'DB_PASS'
-                        )
-                    ]) {
-                        sh '''
-                        mkdir -p "$BACKUP_DIR"
-
-                        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-                        BACKUP_FILE="$BACKUP_DIR/${DB_NAME}_${ENVIRONMENT}_$TIMESTAMP.sql"
-
-                        mysqldump \
-                          --no-tablespaces \
-                          -u"$DB_USER" \
-                          -p"$DB_PASS" \
-                          "$DB_NAME" \
-                          > "$BACKUP_FILE"
-
-                        echo "Backup generado:"
-                        ls -lh "$BACKUP_FILE"
-                        '''
-                    }
-                }
+                input message: '¿Desplegar a PROD?', ok: 'Deploy PROD'
             }
         }
 
-        stage('Production Approval') {
-            when {
-                expression { params.ENVIRONMENT == 'PROD' }
-            }
-
+        stage('Deploy PROD') {
             steps {
-                input message: '¿Confirmas despliegue a PROD?', ok: 'Deploy'
-            }
-        }
-
-        stage('Migrate') {
-            steps {
-                dir("${PROJECT_DIR}") {
-                    withCredentials([
-                        usernamePassword(
-                            credentialsId: "${CRED_ID}",
-                            usernameVariable: 'DB_USER',
-                            passwordVariable: 'DB_PASS'
-                        )
-                    ]) {
-                        sh '''
-                        $FLYWAY \
-                          -url="$DB_URL" \
-                          -user="$DB_USER" \
-                          -password="$DB_PASS" \
-                          -locations="filesystem:sql" \
-                          migrate
-                        '''
-                    }
-                }
-            }
-        }
-
-        stage('Validate After') {
-            steps {
-                dir("${PROJECT_DIR}") {
-                    withCredentials([
-                        usernamePassword(
-                            credentialsId: "${CRED_ID}",
-                            usernameVariable: 'DB_USER',
-                            passwordVariable: 'DB_PASS'
-                        )
-                    ]) {
-                        sh '''
-                        $FLYWAY \
-                          -url="$DB_URL" \
-                          -user="$DB_USER" \
-                          -password="$DB_PASS" \
-                          -locations="filesystem:sql" \
-                          validate
-                        '''
-                    }
-                }
-            }
-        }
-
-        stage('Info After') {
-            steps {
-                dir("${PROJECT_DIR}") {
-                    withCredentials([
-                        usernamePassword(
-                            credentialsId: "${CRED_ID}",
-                            usernameVariable: 'DB_USER',
-                            passwordVariable: 'DB_PASS'
-                        )
-                    ]) {
-                        sh '''
-                        $FLYWAY \
-                          -url="$DB_URL" \
-                          -user="$DB_USER" \
-                          -password="$DB_PASS" \
-                          -locations="filesystem:sql" \
-                          info
-                        '''
-                    }
+                script {
+                    deployDatabase(
+                        'PROD',
+                        'flyway_prod',
+                        'mysql-flyway-prod'
+                    )
                 }
             }
         }
     }
+}
 
-    post {
-        success {
-            echo "Pipeline finalizado correctamente para ${params.ENVIRONMENT}"
-        }
+def deployDatabase(envName, dbName, credentialId) {
 
-        failure {
-            echo "Pipeline falló en ${params.ENVIRONMENT}. Revisar logs, backup y estado de Flyway."
-        }
+    withCredentials([
+        usernamePassword(
+            credentialsId: credentialId,
+            usernameVariable: 'DB_USER',
+            passwordVariable: 'DB_PASS'
+        )
+    ]) {
+
+        sh """
+        echo '=============================='
+        echo 'Deploy ambiente: ${envName}'
+        echo 'Base de datos: ${dbName}'
+        echo '=============================='
+
+        mkdir -p /opt/devops/backups
+
+        TIMESTAMP=\$(date +%Y%m%d_%H%M%S)
+
+        mysqldump \
+          --no-tablespaces \
+          -u\$DB_USER \
+          -p\$DB_PASS \
+          ${dbName} \
+          > /opt/devops/backups/${dbName}_${envName}_\$TIMESTAMP.sql
+
+        echo 'Backup generado'
+
+        $FLYWAY \
+          -url="jdbc:mysql://localhost:3306/${dbName}?allowPublicKeyRetrieval=true&useSSL=false" \
+          -user="\$DB_USER" \
+          -password="\$DB_PASS" \
+          -locations="filesystem:sql" \
+          info
+
+        $FLYWAY \
+          -url="jdbc:mysql://localhost:3306/${dbName}?allowPublicKeyRetrieval=true&useSSL=false" \
+          -user="\$DB_USER" \
+          -password="\$DB_PASS" \
+          -locations="filesystem:sql" \
+          migrate
+
+        $FLYWAY \
+          -url="jdbc:mysql://localhost:3306/${dbName}?allowPublicKeyRetrieval=true&useSSL=false" \
+          -user="\$DB_USER" \
+          -password="\$DB_PASS" \
+          -locations="filesystem:sql" \
+          validate
+        """
     }
 }
