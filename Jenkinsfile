@@ -14,8 +14,8 @@ pipeline {
                 script {
                     deployDatabase(
                         'DEV',
-                        'flyway_dev',
-                        'mysql-flyway-dev'
+                        'POCDB',
+                        'mysql-flyway-dev' // Nota: Si creas una credencial nueva en Jenkins con los datos de Oracle, cambia este nombre aquí
                     )
                 }
             }
@@ -32,7 +32,7 @@ pipeline {
                 script {
                     deployDatabase(
                         'QA',
-                        'flyway_qa',
+                        'POCDB',
                         'mysql-flyway-qa'
                     )
                 }
@@ -50,7 +50,7 @@ pipeline {
                 script {
                     deployDatabase(
                         'PROD',
-                        'flyway_prod',
+                        'POCDB',
                         'mysql-flyway-prod'
                     )
                 }
@@ -71,39 +71,35 @@ def deployDatabase(envName, dbName, credentialId) {
 
         sh """
         echo '=============================='
-        echo 'Deploy ambiente: ${envName}'
+        echo 'Deploy Flyway Ambiente: ${envName}'
         echo 'Base de datos: ${dbName}'
         echo '=============================='
 
-        mkdir -p /opt/devops/backups
+        DB_HOST="172.16.88.60"
+        DB_PORT="1521"
+        DB_SERVICE="POCDB"
 
-        TIMESTAMP=\$(date +%Y%m%d_%H%M%S)
+        JDBC_URL="jdbc:oracle:thin:@//\${DB_HOST}:\${DB_PORT}/\${DB_SERVICE}"
 
-        mysqldump \
-          --no-tablespaces \
-          -u\$DB_USER \
-          -p\$DB_PASS \
-          ${dbName} \
-          > /opt/devops/backups/${dbName}_${envName}_\$TIMESTAMP.sql
-
-        echo 'Backup generado'
-
-        $FLYWAY \
-          -url="jdbc:mysql://localhost:3306/${dbName}?allowPublicKeyRetrieval=true&useSSL=false" \
+        echo 'Consultando estado actual de las migraciones en Oracle...'
+        \$FLYWAY \
+          -url="\${JDBC_URL}" \
           -user="\$DB_USER" \
           -password="\$DB_PASS" \
           -locations="filesystem:sql" \
           info
 
-        $FLYWAY \
-          -url="jdbc:mysql://localhost:3306/${dbName}?allowPublicKeyRetrieval=true&useSSL=false" \
+        echo 'Aplicando nuevas migraciones V en la base corporativa...'
+        \$FLYWAY \
+          -url="\${JDBC_URL}" \
           -user="\$DB_USER" \
           -password="\$DB_PASS" \
           -locations="filesystem:sql" \
           migrate
 
-        $FLYWAY \
-          -url="jdbc:mysql://localhost:3306/${dbName}?allowPublicKeyRetrieval=true&useSSL=false" \
+        echo 'Validando integridad del historial...'
+        \$FLYWAY \
+          -url="\${JDBC_URL}" \
           -user="\$DB_USER" \
           -password="\$DB_PASS" \
           -locations="filesystem:sql" \
